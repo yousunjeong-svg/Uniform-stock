@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>재고관리 MVP</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>재고관리 MVP</h1>
+        <p>재고 · 수불 · 실사 · 청구</p>
+      </div>
+
+      <nav class="nav-tabs" id="navTabs">
+        <button class="tab-btn active" data-tab="dashboard">재고 현황</button>
+        <button class="tab-btn" data-tab="transactions">수불 등록</button>
+        <button class="tab-btn" data-tab="history">수불 이력</button>
+        <button class="tab-btn" data-tab="audit">실사 등록</button>
+        <button class="tab-btn" data-tab="audit-history">실사 이력</button>
+        <button class="tab-btn" data-tab="pricing">단가 관리</button>
+        <button class="tab-btn" data-tab="billing">청구 조회</button>
+      </nav>
+
+      <div class="side-actions">
+        <button id="seedBtn" class="ghost-btn">초기 데이터 다시 넣기</button>
+        <button id="backupBtn" class="ghost-btn">백업 다운로드</button>
+        <label class="ghost-btn file-label">
+          백업 불러오기
+          <input type="file" id="restoreInput" accept="application/json" hidden />
+        </label>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="page-header">
+        <div>
+          <h2 id="pageTitle">재고 현황</h2>
+          <p id="pageDesc">품목/사이즈별 현재 재고와 단가를 확인합니다.</p>
+        </div>
+        <div class="header-stats" id="headerStats"></div>
+      </header>
+
+      <section class="tab-panel active" data-panel="dashboard">
+        <div class="cards-grid" id="summaryCards"></div>
+        <div class="panel">
+          <div class="panel-head">
+            <h3>재고 현황</h3>
+            <div class="inline-filters">
+              <input type="text" id="inventorySearch" placeholder="품목/사이즈 검색" />
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>분류</th>
+                  <th>품목</th>
+                  <th>사이즈</th>
+                  <th>현재고</th>
+                  <th>단가</th>
+                  <th>재고금액</th>
+                </tr>
+              </thead>
+              <tbody id="inventoryTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-panel="transactions">
+        <div class="split-grid">
+          <div class="panel">
+            <div class="panel-head"><h3>수불 등록</h3></div>
+            <form id="transactionForm" class="form-grid">
+              <label><span>날짜</span><input type="date" name="date" required /></label>
+              <label><span>처리구분</span>
+                <select name="type" required>
+                  <option value="입고">입고</option>
+                  <option value="분출">분출</option>
+                  <option value="반납">반납</option>
+                  <option value="재고조정">재고조정</option>
+                </select>
+              </label>
+              <label class="span-2"><span>품목</span><select name="itemId" id="transactionItemSelect" required></select></label>
+              <label><span>사이즈</span><input type="text" name="size" id="transactionSize" readonly /></label>
+              <label><span>수량</span><input type="number" name="quantity" min="1" required /></label>
+              <label><span>분출 담당자</span><input type="text" name="issuer" /></label>
+              <label><span>수령 담당자</span><input type="text" name="receiver" /></label>
+              <label><span>적용 단가</span><input type="number" name="unitPrice" id="transactionUnitPrice" readonly /></label>
+              <label><span>청구금액</span><input type="number" name="amount" id="transactionAmount" readonly /></label>
+              <label class="span-2"><span>비고</span><textarea name="note" rows="3"></textarea></label>
+              <div class="span-2 form-actions">
+                <button type="submit" class="primary-btn">등록</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><h3>안내</h3></div>
+            <ul class="tips">
+              <li>입고/반납은 재고가 증가합니다.</li>
+              <li>분출은 재고가 차감되고 청구금액이 자동 계산됩니다.</li>
+              <li>재고조정은 관리자 보정 용도로 사용합니다.</li>
+              <li>분출 시 현재 단가를 스냅샷으로 저장합니다.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-panel="history">
+        <div class="panel">
+          <div class="panel-head">
+            <h3>수불 이력</h3>
+            <div class="inline-filters history-filters">
+              <select id="historyTypeFilter">
+                <option value="전체">전체 구분</option>
+                <option value="입고">입고</option>
+                <option value="분출">분출</option>
+                <option value="반납">반납</option>
+                <option value="재고조정">재고조정</option>
+                <option value="실사조정">실사조정</option>
+              </select>
+              <input type="text" id="historySearch" placeholder="담당자/품목 검색" />
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>날짜</th>
+                  <th>구분</th>
+                  <th>품목</th>
+                  <th>사이즈</th>
+                  <th>수량</th>
+                  <th>분출 담당자</th>
+                  <th>수령 담당자</th>
+                  <th>단가</th>
+                  <th>청구금액</th>
+                  <th>비고</th>
+                </tr>
+              </thead>
+              <tbody id="historyTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-panel="audit">
+        <div class="split-grid">
+          <div class="panel">
+            <div class="panel-head"><h3>실사 등록</h3></div>
+            <form id="auditForm" class="form-grid">
+              <label><span>실사일</span><input type="date" name="date" required /></label>
+              <label><span>조사자</span><input type="text" name="inspector" required /></label>
+              <label class="span-2"><span>품목</span><select name="itemId" id="auditItemSelect" required></select></label>
+              <label><span>사이즈</span><input type="text" name="size" id="auditSize" readonly /></label>
+              <label><span>전산수량</span><input type="number" name="systemQty" id="auditSystemQty" readonly /></label>
+              <label><span>실사수량</span><input type="number" name="countedQty" id="auditCountedQty" min="0" required /></label>
+              <label><span>차이수량</span><input type="number" name="diffQty" id="auditDiffQty" readonly /></label>
+              <label class="span-2"><span>점검 이미지</span><input type="file" name="image" id="auditImage" accept="image/*" /></label>
+              <label class="span-2"><span>메모</span><textarea name="note" rows="3"></textarea></label>
+              <div class="span-2 form-actions">
+                <button type="submit" class="primary-btn">실사 등록</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head"><h3>반영 방식</h3></div>
+            <ul class="tips">
+              <li>실사 등록 시 전산수량과 실제수량 차이를 계산합니다.</li>
+              <li>차이가 있으면 실사조정 수불 내역을 자동 생성합니다.</li>
+              <li>점검 사진은 오입력 검토용 증빙으로 저장됩니다.</li>
+            </ul>
+            <div id="auditPreview" class="image-preview empty">첨부 이미지 미리보기</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-panel="audit-history">
+        <div class="panel">
+          <div class="panel-head"><h3>실사 이력</h3></div>
+          <div class="audit-history-grid" id="auditHistoryGrid"></div>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-panel="pricing">
+        <div class="panel">
+          <div class="panel-head"><h3>단가 관리</h3></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>분류</th>
+                  <th>품목</th>
+                  <th>사이즈</th>
+                  <th>현재 단가</th>
+                  <th>수정</th>
+                </tr>
+              </thead>
+              <tbody id="pricingTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-panel="billing">
+        <div class="panel">
+          <div class="panel-head">
+            <h3>청구 조회</h3>
+            <input type="text" id="billingSearch" placeholder="수령 담당자 검색" />
+          </div>
+          <div class="cards-grid" id="billingSummaryCards"></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>날짜</th>
+                  <th>수령 담당자</th>
+                  <th>품목</th>
+                  <th>사이즈</th>
+                  <th>수량</th>
+                  <th>단가</th>
+                  <th>청구금액</th>
+                </tr>
+              </thead>
+              <tbody id="billingTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <template id="auditCardTemplate">
+    <article class="audit-card">
+      <div class="audit-meta"></div>
+      <div class="audit-body"></div>
+      <div class="audit-image-wrap"></div>
+    </article>
+  </template>
+
+  <script src="./app.js"></script>
+</body>
+</html>
