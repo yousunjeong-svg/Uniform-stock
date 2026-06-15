@@ -706,8 +706,13 @@ function renderBarChartSvg(months) {
 function renderLineChartSvg(values) {
   const W = 760, H = 280, padL = 44, padB = 28, padT = 16, padR = 12;
   const plotW = W - padL - padR, plotH = H - padT - padB;
-  const max = Math.max(1, ...values);
-  const min = Math.min(0, ...values);
+  // 세로축을 실제 데이터 범위에 맞춰 자동 조정 (0부터 시작하지 않고, 작은 변화도 보이도록)
+  const dataMax = Math.max(...values);
+  const dataMin = Math.min(...values);
+  const span = dataMax - dataMin;
+  const pad = span > 0 ? span * 0.15 : Math.max(1, Math.abs(dataMax) * 0.02);
+  const max = dataMax + pad;
+  const min = dataMin - pad;
   const range = (max - min) || 1;
   const stepX = plotW / 11;
   const baseY = padT + plotH;
@@ -717,8 +722,8 @@ function renderLineChartSvg(values) {
   const labels = values.map((v, i) => `<text x="${(padL + i * stepX).toFixed(1)}" y="${(baseY + 16).toFixed(1)}" class="chart-axis" text-anchor="middle">${i + 1}</text>`).join('');
   const axis = `
     <line x1="${padL}" y1="${baseY}" x2="${W - padR}" y2="${baseY}" class="chart-grid"></line>
-    <text x="${padL - 6}" y="${padT + 4}" class="chart-axis" text-anchor="end">${formatNumber(max)}</text>
-    <text x="${padL - 6}" y="${baseY}" class="chart-axis" text-anchor="end">${formatNumber(min)}</text>`;
+    <text x="${padL - 6}" y="${padT + 4}" class="chart-axis" text-anchor="end">${formatNumber(Math.round(max))}</text>
+    <text x="${padL - 6}" y="${baseY}" class="chart-axis" text-anchor="end">${formatNumber(Math.round(min))}</text>`;
   return `<svg viewBox="0 0 ${W} ${H}" class="chart-svg" preserveAspectRatio="xMidYMid meet">${axis}<polyline points="${poly}" class="line-path" fill="none"></polyline>${dots}${labels}</svg>`;
 }
 
