@@ -703,28 +703,52 @@ function renderBarChartSvg(months) {
 }
 
 // 월별 재고 추이 선그래프를 SVG 문자열로 생성
-function renderLineChartSvg(values) {
-  const W = 760, H = 280, padL = 44, padB = 28, padT = 16, padR = 12;
-  const plotW = W - padL - padR, plotH = H - padT - padB;
-  // 세로축을 실제 데이터 범위에 맞춰 자동 조정 (0부터 시작하지 않고, 작은 변화도 보이도록)
-  const dataMax = Math.max(...values);
+// 세로축을 '깔끔한 숫자(10·20·50·100 단위)' 눈금으로 나누고,
+// 작은 변화가 과장돼 보이지 않도록 적당한 여백(맥락)을 준다.
+function getNiceLineScale(values) {
   const dataMin = Math.min(...values);
+  const dataMax = Math.max(...values);
   const span = dataMax - dataMin;
-  const pad = span > 0 ? span * 0.15 : Math.max(1, Math.abs(dataMax) * 0.02);
-  const max = dataMax + pad;
-  const min = dataMin - pad;
-  const range = (max - min) || 1;
+  const center = (dataMin + dataMax) / 2;
+  // 최소 표시 범위: 재고 수준의 약 0.8% (작은 변화에 맥락을 부여). 큰 변동은 그대로 크게 보임.
+  const contextFloor = Math.max(Math.abs(center) * 0.008, 4);
+  const visibleRange = Math.max(span * 1.3, contextFloor);
+  let lo = center - visibleRange / 2;
+  let hi = center + visibleRange / 2;
+  // 눈금 간격을 1·2·5·10 계열의 깔끔한 수로 (약 4~6칸)
+  const rawStep = (hi - lo) / 4;
+  const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
+  const norm = rawStep / mag;
+  const step = (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+  lo = Math.floor(lo / step) * step;
+  hi = Math.ceil(hi / step) * step;
+  const ticks = [];
+  for (let v = lo; v <= hi + step * 0.001; v += step) ticks.push(Math.round(v));
+  return { lo, hi, ticks };
+}
+
+function renderLineChartSvg(values) {
+  const W = 760, H = 280, padL = 52, padB = 28, padT = 16, padR = 12;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const { lo, hi, ticks } = getNiceLineScale(values);
+  const range = (hi - lo) || 1;
   const stepX = plotW / 11;
   const baseY = padT + plotH;
-  const pts = values.map((v, i) => [padL + i * stepX, baseY - ((v - min) / range) * plotH]);
+  const yOf = v => baseY - ((v - lo) / range) * plotH;
+
+  // 가로 눈금선 + 왼쪽 값 라벨
+  const grid = ticks.map(t => {
+    const y = yOf(t).toFixed(1);
+    return `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" class="chart-grid"></line>` +
+           `<text x="${padL - 8}" y="${(yOf(t) + 4).toFixed(1)}" class="chart-axis" text-anchor="end">${formatNumber(t)}</text>`;
+  }).join('');
+
+  const pts = values.map((v, i) => [padL + i * stepX, yOf(v)]);
   const poly = pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
   const dots = pts.map(p => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" class="line-dot"></circle>`).join('');
-  const labels = values.map((v, i) => `<text x="${(padL + i * stepX).toFixed(1)}" y="${(baseY + 16).toFixed(1)}" class="chart-axis" text-anchor="middle">${i + 1}</text>`).join('');
-  const axis = `
-    <line x1="${padL}" y1="${baseY}" x2="${W - padR}" y2="${baseY}" class="chart-grid"></line>
-    <text x="${padL - 6}" y="${padT + 4}" class="chart-axis" text-anchor="end">${formatNumber(Math.round(max))}</text>
-    <text x="${padL - 6}" y="${baseY}" class="chart-axis" text-anchor="end">${formatNumber(Math.round(min))}</text>`;
-  return `<svg viewBox="0 0 ${W} ${H}" class="chart-svg" preserveAspectRatio="xMidYMid meet">${axis}<polyline points="${poly}" class="line-path" fill="none"></polyline>${dots}${labels}</svg>`;
+  const monthLabels = values.map((v, i) => `<text x="${(padL + i * stepX).toFixed(1)}" y="${(baseY + 16).toFixed(1)}" class="chart-axis" text-anchor="middle">${i + 1}</text>`).join('');
+
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart-svg" preserveAspectRatio="xMidYMid meet">${grid}<polyline points="${poly}" class="line-path" fill="none"></polyline>${dots}${monthLabels}</svg>`;
 }
 
 // 필터(분류/연도) 드롭다운을 채우되 현재 선택값은 유지
