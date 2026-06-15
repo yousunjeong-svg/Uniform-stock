@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>재고관리 MVP</title>
-  <link rel="stylesheet" href="./styles.css?v=2" />
+  <link rel="stylesheet" href="./styles.css?v=3" />
 </head>
 <body>
   <div class="app-shell">
@@ -141,6 +141,7 @@
                   <th>단가</th>
                   <th>청구금액</th>
                   <th>비고</th>
+                  <th>작업</th>
                 </tr>
               </thead>
               <tbody id="historyTableBody"></tbody>
@@ -349,6 +350,37 @@
     </main>
   </div>
 
+  <div id="editModal" class="modal-overlay" hidden>
+    <div class="modal">
+      <div class="modal-head">
+        <h3>수불 이력 수정</h3>
+        <button type="button" class="modal-close" id="editModalClose" aria-label="닫기">×</button>
+      </div>
+      <form id="editForm" class="form-grid">
+        <input type="hidden" name="id" />
+        <label><span>날짜</span><input type="date" name="date" required /></label>
+        <label><span>처리구분</span>
+          <select name="type" required>
+            <option value="입고">입고</option>
+            <option value="분출">분출</option>
+            <option value="반납">반납</option>
+            <option value="재고조정">재고조정</option>
+            <option value="실사조정">실사조정</option>
+          </select>
+        </label>
+        <label class="span-2"><span>품목</span><select name="itemId" id="editItemSelect" required></select></label>
+        <label><span>수량</span><input type="number" name="quantity" required /></label>
+        <label><span>분출 담당자</span><input type="text" name="issuer" /></label>
+        <label><span>수령 담당자</span><input type="text" name="receiver" /></label>
+        <label class="span-2"><span>비고</span><textarea name="note" rows="3"></textarea></label>
+        <div class="span-2 form-actions modal-actions">
+          <button type="button" class="ghost-btn dark-ghost" id="editCancel">취소</button>
+          <button type="submit" class="primary-btn">수정 저장 (비밀번호 필요)</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <template id="auditCardTemplate">
     <article class="audit-card">
       <div class="audit-meta"></div>
@@ -357,6 +389,6 @@
     </article>
   </template>
 
-  <script src="./app.js?v=2"></script>
+  <script src="./app.js?v=3"></script>
 </body>
 </html>

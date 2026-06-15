@@ -1,4 +1,5 @@
 const STORAGE_KEY = 'inventory_mvp_v1';
+const ADMIN_PASSWORD = 'yousun123'; // 수불 이력 수정/삭제 시 요구되는 관리자 비밀번호
 
 const seedItems = [
   { id: 'u-vest-95', category: '유니폼 상의', name: '조끼', size: '95', initialStock: 5, unitPrice: 0 },
@@ -102,7 +103,12 @@ const els = {
   reorderCount: document.getElementById('reorderCount'),
   reorderTableBody: document.getElementById('reorderTableBody'),
   turnoverTableBody: document.getElementById('turnoverTableBody'),
-  forecastTableBody: document.getElementById('forecastTableBody')
+  forecastTableBody: document.getElementById('forecastTableBody'),
+  editModal: document.getElementById('editModal'),
+  editForm: document.getElementById('editForm'),
+  editItemSelect: document.getElementById('editItemSelect'),
+  editCancel: document.getElementById('editCancel'),
+  editModalClose: document.getElementById('editModalClose')
 };
 
 init();
@@ -135,6 +141,11 @@ function bindEvents() {
   els.analyticsCategory.addEventListener('change', renderAnalytics);
   els.analyticsYear.addEventListener('change', renderAnalytics);
   els.reorderTableBody.addEventListener('click', saveSafetyInline);
+  els.historyTableBody.addEventListener('click', onHistoryAction);
+  els.editForm.addEventListener('submit', submitEdit);
+  els.editCancel.addEventListener('click', closeEditModal);
+  els.editModalClose.addEventListener('click', closeEditModal);
+  els.editModal.addEventListener('click', event => { if (event.target === els.editModal) closeEditModal(); });
 }
 
 function loadState() {
@@ -176,6 +187,7 @@ function populateItemSelects() {
   const options = state.items.map(item => `<option value="${item.id}">${item.category} / ${item.name} / ${item.size}</option>`).join('');
   els.transactionItemSelect.innerHTML = options;
   els.auditItemSelect.innerHTML = options;
+  els.editItemSelect.innerHTML = options;
   syncTransactionItem();
   syncAuditItem();
 }
@@ -318,9 +330,92 @@ function renderHistory() {
         <td>${formatCurrency(tx.unitPrice || 0)}</td>
         <td>${formatCurrency(tx.amount || 0)}</td>
         <td>${tx.note || '-'}</td>
+        <td class="row-actions">
+          <button class="mini-btn edit" data-edit-tx="${tx.id}">수정</button>
+          <button class="mini-btn delete" data-del-tx="${tx.id}">삭제</button>
+        </td>
       </tr>
     `;
-  }).join('') || `<tr><td colspan="10" class="empty-state">수불 이력이 없습니다.</td></tr>`;
+  }).join('') || `<tr><td colspan="11" class="empty-state">수불 이력이 없습니다.</td></tr>`;
+}
+
+// 관리자 비밀번호 확인 (취소/오답이면 false)
+function verifyAdmin() {
+  const pw = prompt('관리자 비밀번호를 입력하세요.');
+  if (pw === null) return false;
+  if (pw !== ADMIN_PASSWORD) {
+    alert('비밀번호가 올바르지 않습니다.');
+    return false;
+  }
+  return true;
+}
+
+// 수불 이력의 수정/삭제 버튼 처리
+function onHistoryAction(event) {
+  const delBtn = event.target.closest('[data-del-tx]');
+  const editBtn = event.target.closest('[data-edit-tx]');
+
+  if (delBtn) {
+    if (!confirm('이 수불 이력을 삭제할까요? 삭제하면 되돌릴 수 없습니다.')) return;
+    if (!verifyAdmin()) return;
+    state.transactions = state.transactions.filter(tx => tx.id !== delBtn.dataset.delTx);
+    renderAll();
+    alert('수불 이력이 삭제되었습니다.');
+    return;
+  }
+
+  if (editBtn) {
+    openEditModal(editBtn.dataset.editTx);
+  }
+}
+
+// 수정 모달 열기 (기존 값으로 폼 채우기)
+function openEditModal(txId) {
+  const tx = state.transactions.find(t => t.id === txId);
+  if (!tx) return;
+  const form = els.editForm;
+  form.id.value = tx.id;
+  form.date.value = tx.date;
+  form.type.value = tx.type;
+  form.itemId.value = tx.itemId;
+  form.quantity.value = tx.quantity;
+  form.issuer.value = tx.issuer || '';
+  form.receiver.value = tx.receiver || '';
+  form.note.value = tx.note || '';
+  els.editModal.hidden = false;
+}
+
+function closeEditModal() {
+  els.editModal.hidden = true;
+  els.editForm.reset();
+}
+
+// 수정 저장 (비밀번호 확인 후 최종 반영)
+function submitEdit(event) {
+  event.preventDefault();
+  const form = new FormData(els.editForm);
+  const txId = form.get('id');
+  const tx = state.transactions.find(t => t.id === txId);
+  if (!tx) { closeEditModal(); return; }
+
+  if (!verifyAdmin()) return;
+
+  const item = getItemById(form.get('itemId'));
+  const type = form.get('type');
+  const quantity = Number(form.get('quantity'));
+  tx.date = form.get('date');
+  tx.type = type;
+  tx.itemId = item.id;
+  tx.quantity = quantity;
+  tx.issuer = form.get('issuer') || '';
+  tx.receiver = form.get('receiver') || '';
+  tx.note = form.get('note') || '';
+  tx.unitPrice = Number(item.unitPrice || 0);
+  tx.amount = type === '분출' ? quantity * Number(item.unitPrice || 0) : 0;
+
+  closeEditModal();
+  renderAll();
+  alert('수불 이력이 수정되었습니다.');
 }
 
 function syncAuditItem() {
