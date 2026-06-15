@@ -55,7 +55,8 @@ const pageMap = {
   audit: ['실사 등록', '전산수량과 실사수량 차이를 기록하고 조정합니다.'],
   'audit-history': ['실사 이력', '실사 기록과 점검 이미지를 확인합니다.'],
   pricing: ['단가 관리', '분출 청구용 단가를 설정합니다.'],
-  billing: ['청구 조회', '분출 기준 청구금액을 담당자별로 조회합니다.']
+  billing: ['청구 조회', '분출 기준 청구금액을 담당자별로 조회합니다.'],
+  analytics: ['분석 대시보드', '월별 입출고 추이와 재발주·회전율·수요예측을 한눈에 확인합니다.']
 };
 
 let state = loadState();
@@ -91,7 +92,17 @@ const els = {
   billingTableBody: document.getElementById('billingTableBody'),
   seedBtn: document.getElementById('seedBtn'),
   backupBtn: document.getElementById('backupBtn'),
-  restoreInput: document.getElementById('restoreInput')
+  restoreInput: document.getElementById('restoreInput'),
+  analyticsCategory: document.getElementById('analyticsCategory'),
+  analyticsYear: document.getElementById('analyticsYear'),
+  analyticsSummary: document.getElementById('analyticsSummary'),
+  barChart: document.getElementById('barChart'),
+  lineChart: document.getElementById('lineChart'),
+  categoryTableBody: document.getElementById('categoryTableBody'),
+  reorderCount: document.getElementById('reorderCount'),
+  reorderTableBody: document.getElementById('reorderTableBody'),
+  turnoverTableBody: document.getElementById('turnoverTableBody'),
+  forecastTableBody: document.getElementById('forecastTableBody')
 };
 
 init();
@@ -121,6 +132,9 @@ function bindEvents() {
   els.backupBtn.addEventListener('click', downloadBackup);
   els.restoreInput.addEventListener('change', restoreBackup);
   els.pricingTableBody.addEventListener('click', savePriceInline);
+  els.analyticsCategory.addEventListener('change', renderAnalytics);
+  els.analyticsYear.addEventListener('change', renderAnalytics);
+  els.reorderTableBody.addEventListener('click', saveSafetyInline);
 }
 
 function loadState() {
@@ -195,6 +209,7 @@ function renderAll() {
   renderPricing();
   renderAuditHistory();
   renderBilling();
+  renderAnalytics();
 }
 
 function renderHeaderStats() {
@@ -430,9 +445,19 @@ function savePriceInline(event) {
   const input = els.pricingTableBody.querySelector(`[data-price-id="${itemId}"]`);
   const item = getItemById(itemId);
   item.unitPrice = Number(input.value || 0);
+
+  // 이미 등록된 이 품목의 거래 내역에도 새 단가를 소급 적용한다.
+  // (분출 내역의 청구금액 = 수량 × 새 단가로 다시 계산)
+  state.transactions.forEach(tx => {
+    if (tx.itemId === itemId) {
+      tx.unitPrice = item.unitPrice;
+      tx.amount = tx.type === '분출' ? tx.quantity * item.unitPrice : 0;
+    }
+  });
+
   renderAll();
   syncTransactionItem();
-  alert('단가가 저장되었습니다.');
+  alert('단가가 저장되었습니다. 기존 분출 내역에도 반영했습니다.');
 }
 
 function renderBilling() {
@@ -494,6 +519,264 @@ function restoreBackup(event) {
     }
   };
   reader.readAsText(file);
+}
+
+/* ===== 분석 대시보드 ===== */
+
+// 분류 선택값에 해당하는 품목 목록을 반환 ('전체'면 모든 품목)
+function getScopedItems(category) {
+  return category === '전체' ? state.items : state.items.filter(item => item.category === category);
+}
+
+// 거래 내역에 존재하는 연도 + 올해를 최신순으로 반환
+function getAvailableYears() {
+  const years = new Set(state.transactions.map(tx => (tx.date || '').slice(0, 4)).filter(Boolean));
+  years.add(new Date().toISOString().slice(0, 4));
+  return [...years].filter(Boolean).sort().reverse();
+}
+
+// n개월 전 날짜를 'YYYY-MM-DD'로 반환
+function monthsAgoStr(n) {
+  const d = new Date();
+  d.setMonth(d.getMonth() - n);
+  return d.toISOString().slice(0, 10);
+}
+
+// 특정 품목의 가장 최근 분출일 (없으면 null)
+function getLastIssueDate(itemId) {
+  const dates = state.transactions
+    .filter(tx => tx.itemId === itemId && tx.type === '분출')
+    .map(tx => tx.date)
+    .sort();
+  return dates.length ? dates[dates.length - 1] : null;
+}
+
+// 선택 분류/연도의 월별 입고·분출 집계 (1~12월)
+function getMonthlyInOut(category, year) {
+  const ids = new Set(getScopedItems(category).map(item => item.id));
+  const months = Array.from({ length: 12 }, () => ({ inbound: 0, outbound: 0 }));
+  state.transactions.forEach(tx => {
+    if (!ids.has(tx.itemId)) return;
+    if ((tx.date || '').slice(0, 4) !== year) return;
+    const m = Number((tx.date || '').slice(5, 7)) - 1;
+    if (m < 0 || m > 11) return;
+    if (tx.type === '입고' || tx.type === '반납') months[m].inbound += tx.quantity;
+    else if (tx.type === '분출') months[m].outbound += tx.quantity;
+  });
+  return months;
+}
+
+// 선택 분류/연도의 월말 재고(추이) 12개를 반환
+function getMonthEndStock(category, year) {
+  const items = getScopedItems(category);
+  const ids = new Set(items.map(item => item.id));
+  const baseInitial = items.reduce((acc, item) => acc + item.initialStock, 0);
+  const result = [];
+  for (let m = 1; m <= 12; m++) {
+    const cutoff = `${year}-${String(m).padStart(2, '0')}-31`;
+    const delta = state.transactions
+      .filter(tx => ids.has(tx.itemId) && (tx.date || '') <= cutoff)
+      .reduce((acc, tx) => acc + getSignedQuantity(tx), 0);
+    result.push(baseInitial + delta);
+  }
+  return result;
+}
+
+// 월별 입고/분출 막대그래프를 SVG 문자열로 생성
+function renderBarChartSvg(months) {
+  const W = 760, H = 300, padL = 44, padB = 28, padT = 16, padR = 12;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const max = Math.max(1, ...months.flatMap(m => [m.inbound, m.outbound]));
+  const groupW = plotW / 12;
+  const barW = Math.min(18, groupW / 2 - 4);
+  const baseY = padT + plotH;
+  let bars = '';
+  months.forEach((m, i) => {
+    const gx = padL + i * groupW + groupW / 2;
+    const inH = (m.inbound / max) * plotH;
+    const outH = (m.outbound / max) * plotH;
+    bars += `<rect x="${(gx - barW - 2).toFixed(1)}" y="${(baseY - inH).toFixed(1)}" width="${barW.toFixed(1)}" height="${inH.toFixed(1)}" rx="3" class="bar-in"></rect>`;
+    bars += `<rect x="${(gx + 2).toFixed(1)}" y="${(baseY - outH).toFixed(1)}" width="${barW.toFixed(1)}" height="${outH.toFixed(1)}" rx="3" class="bar-out"></rect>`;
+    bars += `<text x="${gx.toFixed(1)}" y="${(baseY + 16).toFixed(1)}" class="chart-axis" text-anchor="middle">${i + 1}</text>`;
+  });
+  const axis = `
+    <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${baseY}" class="chart-grid"></line>
+    <line x1="${padL}" y1="${baseY}" x2="${W - padR}" y2="${baseY}" class="chart-grid"></line>
+    <text x="${padL - 6}" y="${padT + 4}" class="chart-axis" text-anchor="end">${formatNumber(max)}</text>
+    <text x="${padL - 6}" y="${baseY}" class="chart-axis" text-anchor="end">0</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart-svg" preserveAspectRatio="xMidYMid meet">${axis}${bars}</svg>`;
+}
+
+// 월별 재고 추이 선그래프를 SVG 문자열로 생성
+function renderLineChartSvg(values) {
+  const W = 760, H = 280, padL = 44, padB = 28, padT = 16, padR = 12;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const max = Math.max(1, ...values);
+  const min = Math.min(0, ...values);
+  const range = (max - min) || 1;
+  const stepX = plotW / 11;
+  const baseY = padT + plotH;
+  const pts = values.map((v, i) => [padL + i * stepX, baseY - ((v - min) / range) * plotH]);
+  const poly = pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const dots = pts.map(p => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" class="line-dot"></circle>`).join('');
+  const labels = values.map((v, i) => `<text x="${(padL + i * stepX).toFixed(1)}" y="${(baseY + 16).toFixed(1)}" class="chart-axis" text-anchor="middle">${i + 1}</text>`).join('');
+  const axis = `
+    <line x1="${padL}" y1="${baseY}" x2="${W - padR}" y2="${baseY}" class="chart-grid"></line>
+    <text x="${padL - 6}" y="${padT + 4}" class="chart-axis" text-anchor="end">${formatNumber(max)}</text>
+    <text x="${padL - 6}" y="${baseY}" class="chart-axis" text-anchor="end">${formatNumber(min)}</text>`;
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart-svg" preserveAspectRatio="xMidYMid meet">${axis}<polyline points="${poly}" class="line-path" fill="none"></polyline>${dots}${labels}</svg>`;
+}
+
+// 필터(분류/연도) 드롭다운을 채우되 현재 선택값은 유지
+function populateAnalyticsFilters() {
+  const cats = ['전체', ...new Set(state.items.map(item => item.category))];
+  const prevCat = els.analyticsCategory.value;
+  els.analyticsCategory.innerHTML = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+  if (cats.includes(prevCat)) els.analyticsCategory.value = prevCat;
+
+  const years = getAvailableYears();
+  const prevYear = els.analyticsYear.value;
+  els.analyticsYear.innerHTML = years.map(y => `<option value="${y}">${y}년</option>`).join('');
+  els.analyticsYear.value = years.includes(prevYear) ? prevYear : years[0];
+}
+
+function renderAnalytics() {
+  populateAnalyticsFilters();
+  const category = els.analyticsCategory.value || '전체';
+  const year = els.analyticsYear.value || new Date().toISOString().slice(0, 4);
+
+  const months = getMonthlyInOut(category, year);
+  const stock = getMonthEndStock(category, year);
+  const totalIn = months.reduce((acc, m) => acc + m.inbound, 0);
+  const totalOut = months.reduce((acc, m) => acc + m.outbound, 0);
+  const curStock = getScopedItems(category).reduce((acc, item) => acc + getCurrentStock(item.id), 0);
+
+  els.analyticsSummary.innerHTML = [
+    ['선택기간 총입고', formatNumber(totalIn)],
+    ['선택기간 총분출', formatNumber(totalOut)],
+    ['순증감', signed(totalIn - totalOut)],
+    ['현재고(선택분류)', formatNumber(curStock)]
+  ].map(([label, value]) => `<div class="summary-card"><span>${label}</span><strong>${value}</strong></div>`).join('');
+
+  els.barChart.innerHTML = renderBarChartSvg(months);
+  els.lineChart.innerHTML = renderLineChartSvg(stock);
+
+  renderCategoryTable(year);
+  renderReorderTable();
+  renderTurnoverTable();
+  renderForecastTable();
+}
+
+function renderCategoryTable(year) {
+  const cats = [...new Set(state.items.map(item => item.category))];
+  els.categoryTableBody.innerHTML = cats.map(cat => {
+    const months = getMonthlyInOut(cat, year);
+    const inb = months.reduce((acc, m) => acc + m.inbound, 0);
+    const out = months.reduce((acc, m) => acc + m.outbound, 0);
+    const cur = getScopedItems(cat).reduce((acc, item) => acc + getCurrentStock(item.id), 0);
+    return `
+      <tr>
+        <td>${cat}</td>
+        <td>${formatNumber(inb)}</td>
+        <td>${formatNumber(out)}</td>
+        <td>${signed(inb - out)}</td>
+        <td>${formatNumber(cur)}</td>
+      </tr>`;
+  }).join('');
+}
+
+function renderReorderTable() {
+  const rows = getInventoryRows().map(row => ({ ...row, safetyStock: Number(row.safetyStock || 0) }));
+  const isShort = row => row.safetyStock > 0 && row.currentStock <= row.safetyStock;
+  const belowCount = rows.filter(isShort).length;
+  els.reorderCount.textContent = `발주 필요 ${belowCount}건 / 전체 ${rows.length}품목`;
+
+  const sorted = [...rows].sort((a, b) => (isShort(b) ? 1 : 0) - (isShort(a) ? 1 : 0));
+  els.reorderTableBody.innerHTML = sorted.map(row => {
+    const badge = isShort(row)
+      ? `<span class="badge minus">발주 필요</span>`
+      : (row.safetyStock > 0 ? `<span class="badge plus">정상</span>` : `<span class="badge neutral">미설정</span>`);
+    return `
+      <tr>
+        <td>${row.category}</td>
+        <td>${row.name}</td>
+        <td>${row.size}</td>
+        <td>${formatNumber(row.currentStock)}</td>
+        <td>
+          <input class="safety-input" type="number" min="0" value="${row.safetyStock}" data-safety-id="${row.id}" />
+          <button class="primary-btn" data-save-safety="${row.id}">저장</button>
+        </td>
+        <td>${badge}</td>
+      </tr>`;
+  }).join('');
+}
+
+function saveSafetyInline(event) {
+  const button = event.target.closest('[data-save-safety]');
+  if (!button) return;
+  const itemId = button.dataset.saveSafety;
+  const input = els.reorderTableBody.querySelector(`[data-safety-id="${itemId}"]`);
+  const item = getItemById(itemId);
+  item.safetyStock = Number(input.value || 0);
+  renderAll();
+  alert('안전재고가 저장되었습니다.');
+}
+
+function renderTurnoverTable() {
+  const cutoff = monthsAgoStr(6);
+  const rows = state.items.map(item => {
+    const cur = getCurrentStock(item.id);
+    const issued6 = state.transactions
+      .filter(tx => tx.itemId === item.id && tx.type === '분출' && (tx.date || '') >= cutoff)
+      .reduce((acc, tx) => acc + tx.quantity, 0);
+    const lastIssue = getLastIssueDate(item.id);
+    const turnover = cur > 0 ? issued6 / cur : null;
+    const dead = !lastIssue || lastIssue < cutoff;
+    return { item, cur, issued6, lastIssue, turnover, dead };
+  }).sort((a, b) => b.issued6 - a.issued6);
+
+  els.turnoverTableBody.innerHTML = rows.map(r => {
+    const badge = r.dead
+      ? `<span class="badge minus">불용(6개월+)</span>`
+      : (r.turnover >= 1 ? `<span class="badge plus">활발</span>` : `<span class="badge neutral">보통</span>`);
+    return `
+      <tr>
+        <td>${r.item.name}</td>
+        <td>${r.item.size}</td>
+        <td>${formatNumber(r.cur)}</td>
+        <td>${formatNumber(r.issued6)}</td>
+        <td>${r.turnover == null ? '-' : r.turnover.toFixed(2)}</td>
+        <td>${r.lastIssue || '-'}</td>
+        <td>${badge}</td>
+      </tr>`;
+  }).join('') || `<tr><td colspan="7" class="empty-state">분석할 품목이 없습니다.</td></tr>`;
+}
+
+function renderForecastTable() {
+  const cutoff = monthsAgoStr(3);
+  const rows = state.items.map(item => {
+    const issued3 = state.transactions
+      .filter(tx => tx.itemId === item.id && tx.type === '분출' && (tx.date || '') >= cutoff)
+      .reduce((acc, tx) => acc + tx.quantity, 0);
+    const avg = issued3 / 3;
+    const predicted = Math.round(avg);
+    const cur = getCurrentStock(item.id);
+    const safety = Number(item.safetyStock || 0);
+    const recommend = Math.max(0, predicted + safety - cur);
+    return { item, avg, predicted, cur, safety, recommend };
+  }).filter(r => r.predicted > 0 || r.recommend > 0)
+    .sort((a, b) => b.recommend - a.recommend);
+
+  els.forecastTableBody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${r.item.name}</td>
+        <td>${r.item.size}</td>
+        <td>${formatNumber(r.cur)}</td>
+        <td>${r.avg.toFixed(1)}</td>
+        <td>${formatNumber(r.predicted)}</td>
+        <td>${formatNumber(r.safety)}</td>
+        <td>${r.recommend > 0 ? `<strong>${formatNumber(r.recommend)}</strong>` : '0'}</td>
+      </tr>`).join('') || `<tr><td colspan="7" class="empty-state">예측에 필요한 분출 데이터가 부족합니다.</td></tr>`;
 }
 
 function groupBy(arr, fn) {
