@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>재고관리 MVP</title>
-  <link rel="stylesheet" href="./styles.css?v=5" />
+  <link rel="stylesheet" href="./styles.css?v=6" />
 </head>
 <body>
   <div class="app-shell">
@@ -83,6 +83,7 @@
                   <option value="분출">분출</option>
                   <option value="반납">반납</option>
                   <option value="재고조정">재고조정</option>
+                  <option value="잉여출고">잉여출고 (재고 미반영)</option>
                 </select>
               </label>
               <label class="span-2"><span>품목</span><select name="itemId" id="transactionItemSelect" required></select></label>
@@ -123,6 +124,7 @@
                 <option value="반납">반납</option>
                 <option value="재고조정">재고조정</option>
                 <option value="실사조정">실사조정</option>
+                <option value="잉여출고">잉여출고</option>
               </select>
               <input type="text" id="historySearch" placeholder="담당자/품목 검색" />
             </div>
@@ -366,6 +368,7 @@
             <option value="반납">반납</option>
             <option value="재고조정">재고조정</option>
             <option value="실사조정">실사조정</option>
+            <option value="잉여출고">잉여출고</option>
           </select>
         </label>
         <label class="span-2"><span>품목</span><select name="itemId" id="editItemSelect" required></select></label>
@@ -389,6 +392,6 @@
     </article>
   </template>
 
-  <script src="./app.js?v=5"></script>
+  <script src="./app.js?v=6"></script>
 </body>
 </html>

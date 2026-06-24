@@ -199,6 +199,7 @@ function getItemById(id) {
 function getSignedQuantity(tx) {
   if (tx.type === '입고' || tx.type === '반납') return tx.quantity;
   if (tx.type === '분출') return -tx.quantity;
+  if (tx.type === '잉여출고') return 0; // 재고에 안 잡히는 잉여분 → 기록만, 현재고에는 영향 없음
   return tx.quantity;
 }
 
